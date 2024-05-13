@@ -6,9 +6,9 @@ from django.shortcuts import redirect, render
 from .models import Comment, Post, Subscription
 from django.contrib.auth.decorators import login_required
 from authapp.permissions import check_is_creator_or_admin
-from .utils import update_post_lasted_viewed
+from .utils import get_new_file_name, update_post_lasted_viewed
 from django.contrib.auth import get_user_model
-
+from django.core.files.storage import default_storage
 
 def home(request):
     posts = Post.objects.all()
@@ -22,9 +22,17 @@ def new(request):
         title = request.POST["title"]
         content = request.POST["content"]
 
-        new_post = Post.objects.create(
-            title=title, content=content, creator=request.user
-        )
+        new_post = Post(title=title, content=content, creator=request.user)
+        image = request.FILES["image"]
+        if image:
+            image_name = get_new_file_name(image, request.user, title)
+            
+            saved_path = default_storage.save(image_name, image)
+            image_url = default_storage.url(saved_path)
+            
+            new_post.image_url = image_url
+        new_post.save()
+        
         return redirect("detail", new_post.pk)
 
     return render(request, "new.html")
@@ -36,10 +44,19 @@ def detail(request, post_pk):
     post = Post.objects.get(pk=post_pk)
     if request.method == "POST":
         content = request.POST["content"]
-        Comment.objects.create(post=post, content=content, creator=request.user)
+        image = request.FILES.get('image', None)  # 이미지 파일을 받아옴
+        comment = Comment(post=post, content=content, creator=request.user)
+
+        if image:
+            image_name = get_new_file_name(image, request.user, content)
+            saved_path = default_storage.save(image_name, image)
+            comment.image = saved_path  # ImageField에는 경로를 직접 저장
+        comment.save()
+
         return redirect("detail", post_pk)
 
     return render(request, "detail.html", {"post": post})
+
 
 
 @login_required
@@ -51,6 +68,17 @@ def edit(request, post_pk):
         title = request.POST["title"]
         content = request.POST["content"]
         Post.objects.filter(pk=post_pk).update(title=title, content=content)
+        
+        image = request.FILES["image"]
+        if image:
+            image_name = get_new_file_name(image, request.user, title)
+            
+            saved_path = default_storage.save(image_name, image)
+            image_url = default_storage.url(saved_path)
+            
+            post.image_url = image_url
+            post.save()
+        
         return redirect("detail", post_pk)
 
     return render(request, "edit.html", {"post": post})
